@@ -1,0 +1,182 @@
+---
+title: "Projeto I"
+author: "Luiz Otávio Pala"
+date: "29 de novembro de 2019"
+output: html_document
+---
+
+#<div style="text-align: justify"> 
+## [RECONHECIMENTO DE ATIVIDADES HUMANAS USANDO CELULARES](#heading-3)
+
+#--------------------------
+Vamos iniciar com o processamento e leitura da matriz X e do vetor com a variável resposta Y.
+
+```{r, include = F, message=F}
+library(bigmemory)
+library(tidyverse)
+```
+
+```{r,include=T,message=F,fig.align='center', out.width = '60%'}
+knitr::opts_chunk$set(echo = TRUE)
+matriz_x = read.table("final_X_train.txt", sep = ",")
+y = read.table("final_y_train.txt", sep =","); names(y) = "Resposta"
+```
+
+A partir disso, vamos analisar a variável resposta que corresponde a atividade desenvolvida pelo indivíduo, sendo:
+
+* Andando
+* Subindo escada
+* Descendo escada
+* Sentando
+* De pé
+* Deitado
+
+```{r, include=T, fig.align="center", out.width = '60%'}
+dados = data.frame(y); colnames(dados) = "Resposta"
+ggplot(data=dados, aes(x=factor(Resposta))) +
+  geom_bar(stat="count", position=position_dodge(), fill = "#FF6666")+
+  theme_classic()+ scale_x_discrete("Resposta")+scale_y_continuous("N")
+```
+
+Precisamos incluir o nome das colunas na matrix *X*:
+
+```{r, include=T, fig.align="center", out.width = '60%'}
+nomes = read.table("features.txt")
+names(matriz_x) = as.character(nomes$V2)
+```
+
+# Análise univariada
+
+Vamos comparar a média da variável *fGravityAcc-mean()-X* antes e após a subida de escadas. Para isso, vamos filtar as variáveis correspondes a subir (2) e descer (3) escadas. Conforme o *teste-t* há diferença significativa na média da variável após a subida de escada.
+
+```{r, include=T, fig.align="center", out.width = '60%'}
+dados_completo = data.frame(matriz_x,y) # agrupando a matriz x e y
+antes = dados_completo %>% filter(Resposta == 2) %>% select(tGravityAccmeanX)
+depois = dados_completo %>% filter(Resposta == 3) %>% select(tGravityAccmeanX)
+t.test(depois$tGravityAccmeanX, antes$tGravityAccmeanX) 
+```
+
+# Análise Multivariada
+
+Vamos aplicar componentes principais ao conjunto de dados e buscar relacionar os grupos com base na variável categórica resposta(y). Note que as duas primeiras componentes principais explicam aproximadamente 50\% da variabilidade do conjunto de dados (o que é considerado baixo), sendo necessário a retenção de mais componentes. No gráfico abaixo, podemos ver a distribuição da variável resposta em relação aos dois primeiros componentes principais.
+
+
+```{r, include=T, fig.align="center", out.width = '60%'}
+library("FactoMineR")
+library("factoextra")
+pca = PCA(dados_completo[,-562], graph = F)
+
+# note que as duas primeiras comp. explicam em aprox  50,8%
+## da variabilidade total dos dados
+fviz_pca_ind(pca,geom.ind = "point",
+            col.ind = factor(dados_completo$Resposta),
+            addEllipses = T, legend.title = "Resposta")
+```
+
+Além disso, podemos analisar quais variáveis mais contribuíram para a construção desses componentes, mostrado abaixo:
+
+
+```{r, include=T, fig.align="center", out.width = '60%'}
+var = get_pca_var(pca)
+fviz_contrib(pca, choice = "var", axes = 1, title = "",top = 10)
+fviz_contrib(pca, choice = "var", axes = 2, title = "",top = 20)
+```
+
+Podemos notar que as variáveis fBodyAccsma, fBodyAccJerksma, BodyAccMagaCoeff1 e tGravityAccMagacoeff1 foram as que mais contribuíram para a construção dos dois primeiros componentes principais. 
+
+# Análise Preditiva
+
+Vamos considerar percentuais do conjunto de dados de modo a predizer as categorias da variável resposta, sendo 75\% para treino e 25\% para teste, vamos utilizar os métodos *randomForest* e *SVM*, comparando as taxas de acurácia e qualidade de predição.
+
+
+```{r, include=T, fig.align="center", out.width = '60%'}
+library("randomForest"); library("caret")
+ind <- sample(2, nrow(dados_completo), replace= T, prob=c(0.75, 0.25))
+treino <- as.tibble(dados_completo[ind==1,])
+teste <- as.tibble(dados_completo[ind==2,])
+```
+
+Para o método de Random Forest, vamos considerar a predição a partir de 100 árvores, contabilizando a importância.
+
+# Random Forest
+```{r, include=T, fig.align="center", out.width = '60%', message=F}
+modelo_random <- randomForest(as.factor(Resposta) ~ ., data =  treino, ntree = 100, method = "class", importance = T)
+# importância das variáveis
+varImpPlot(modelo_random)
+
+# predição
+predicao <- predict(modelo_random, newdata = teste)
+confusionMatrix(predicao, data = as.factor(teste$Resposta))
+plot(modelo_random)
+```
+Considerando todas as covariáveis, o modelo teve uma acurácia de 92,8\% e índice kappa de 0,9135, sendo uma boa acurácia para a classificação. Note que com 100 árvores, o erro de classificação decresce em todas as categorias da variável resposta.
+
+Podemos também incluir as respectivas legendas ao gráfico acima, da seguinte forma:
+
+
+```{r, include=T, fig.align="center", out.width = '60%', message=F}
+layout(matrix(c(1,2),nrow=1),width=c(4,1)) 
+plot(modelo_random, main = "")
+par(mar=c(5,0,4,2)) 
+plot(c(0,1),type="n", axes=F, xlab="", ylab="")
+legend("top", colnames(modelo_random$err.rate),col=1:4,cex=0.8,fill=1:4)
+```
+
+Dada a taxa de acurácia do modelo anterior, vamos considerar o modelo *Support Vector Machines* considerando todas as covariáveis do modelo. 
+
+```{r, include=T, fig.align="center", out.width = '60%', message=F}
+library(e1071)
+library(caret)
+svm = svm(formula = as.factor(Resposta) ~ ., data = treino, type = 'C-classification', kernel = 'radial')
+previsoes = predict(svm, newdata = teste[,-562])
+matriz_confusao = table(as.factor(teste$Resposta), previsoes)
+confusionMatrix(matriz_confusao)
+
+```
+
+O modelo *SVM* obteve uma taxa de acurácia inferior ao *Random Forest*, de 89,8\% e Kappa de 0.8769. 
+
+Um terceiro modelo a ser considerado foi dado considerando as variáveis que mais contribuíram para o modelo *randomForest* alimentando o modelo *SVM*, como mostrado abaixo.
+
+Podemos, nesse caso, fazer o gráfico do modelo considerando as regiões de tomada de decisão entre as classes da variável resposta. Note que esse modelo teve uma acurácia muito mais baixa que os modelos anteriores.
+
+```{r, include=T, fig.align="center", out.width = '60%', message=F}
+library(e1071); library(caret)
+svm = svm(formula = as.factor(Resposta) ~ tBodyAccMagmad +
+            tGravityAccarCoeffX1, data = treino, type = 'C-classification',
+          kernel = "radial")
+
+previsoes = predict(svm, newdata = teste[,-562])
+matriz_confusao = table(teste$Resposta, previsoes)
+confusionMatrix(matriz_confusao)
+plot(svm, teste, tBodyAccMagmad ~ tGravityAccarCoeffX1)
+```
+
+#--------------------------
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

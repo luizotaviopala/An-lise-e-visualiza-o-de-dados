@@ -1,0 +1,147 @@
+---
+title: "Trabalho final"
+author: "Luiz Otávio Pala"
+date: "5 de dezembro de 2019"
+output: html_document
+---
+
+#<div style="text-align: justify"> 
+## [Ocorrência de sinistros](#heading-3)
+
+Os dados analisados são fornecidos pela Superintendência de Seguros Privados, correspondendo ao número de veículos que sofreram perca total. A base de dados originais compreende 2.953.485 observações com 22 variáveis. No caso dessa análise, vamos restringir apenas a 0,1\% dos dados para treino e 0,1\% para teste em função do esforço computacional. Além disso, vamos considerar as variáveis sexo do segurado, idade, exposição, ano do carro e ocorrência do sinistro.
+
+
+```{r, include = T, message = F}
+library("tidyverse")
+library("forcats")
+library("randomForestExplainer")
+library("randomForest")
+library(caret)
+```
+
+Vamos carregar o conjunto de dados e remover as observações ausentes.
+
+
+```{r, include=FALSE}
+setwd("/home/luiz/Dropbox/DOUTORADO/ANÁLISE E VISUALIZAÇÃO DE DADOS/TRABALHO")
+dados = read_csv2("arq_casco_comp.csv", col_types = 
+                    cols(COD_TARIF = col_factor(),
+                         REGIAO = col_factor(),
+                         COD_MODELO = col_factor(),
+                         ANO_MODELO = col_factor(),
+                         SEXO = col_factor(),
+                         IDADE = col_factor()
+                         ))
+dados = dados %>% drop_na()
+```
+
+Como dito, vamos definir o conjunto de treino e teste e analisar algumas variáveis e selecionar as variáveis que serão utilizadas na análise.
+
+
+```{r, include= TRUE, message=F}
+ind <- sample(2, nrow(dados), replace= T, prob=c(0.001, 0.001))
+treino <- dados[ind==1,]
+teste <- dados[ind==2,]
+rm(dados) # limpar o conjunto original
+```
+
+De modo a restringir as categorias, vamos criar duas variáveis categóricas, sendo elas: i) ano_carro: Se o ano do carro é inferior ou superior a 2010; ii) sin: se o sinistro ocorreu ou não, vamos criá-las nos conjuntos de treino e teste.
+
+
+```{r, include=T, message=F}
+# selecionado apenas algumas variaveis do conjunto treino 
+treino = as.tibble(treino)
+treino = treino %>% select(COD_TARIF, REGIAO,
+                        ANO_MODELO,SEXO, IDADE, EXPOSICAO1,
+                       FREQ_SIN3, INDENIZ3, PREMIO1)
+names(treino)
+glimpse(treino)
+
+# adicionando uma dummie se ocorreu ou n a perda total
+treino = add_column(treino, sin = ifelse(treino$FREQ_SIN3==0, "0", "1"))
+treino$sin <- as.factor(treino$sin)
+treino$FREQ_SIN3 <- factor(treino$FREQ_SIN3)
+
+# adicionando a coluna ano do carro carro< 2010 ou >= 2010
+treino = add_column(treino, ano_carro = ifelse(as.numeric(treino$ANO_MODELO)<2010, "0", "1"))
+treino$ano_carro = as.factor(treino$ano_carro)
+
+#------------------------
+# adicionando no dados de teste
+# adicionando a coluna ano do carro carro< 2010 ou >= 2010
+teste = add_column(teste, ano_carro = ifelse(as.numeric(teste$ANO_MODELO)<2010, "0", "1"))
+teste$ano_carro = as.factor(teste$ano_carro)
+
+teste = add_column(teste, sin = ifelse(teste$FREQ_SIN3==0, "0", "1"))
+teste$sin <- as.factor(teste$sin)
+teste$FREQ_SIN3 <- factor(teste$FREQ_SIN3)
+
+```
+
+Vamos analisar a distribuição das classes de idades dos segurados nos dados de teste em relação a 4 categorias: masculino (M), feminino (F), jurídico (J) e sem informação (0) as 5 classes de idade 1: (18-25); 2: (26-35); 3: (36-44); 4: (46 e 55); 5: (>55), 0: (não informado).  
+
+```{r, include = TRUE, message=F, fig.align="center"}
+ggplot(data=treino, aes(x=as.factor(IDADE), fill=SEXO)) +
+  geom_bar(stat="count", color="black", position=position_dodge())+
+  theme_classic()+labs(x = "Classe de idade", y = "N")
+
+# ordenando os fatores em X em ordem crescente
+treino$IDADE = factor(treino$IDADE, c("0", "1", "2", "3", "4", "5", "6"))
+```
+
+Podemos notar a maior concentração de segurados do sexo masculino nas categorias de idade 2, 3, 4 e 5. Na classe de idade 0, há um maior acúmulo de seguros de pessoas jurídicas e classes de idades não informadas, o que é esperado. Além disso, na classe com idade superior a 55 anos, há grande acumulo de segurados do sexo masculino e feminino.
+
+Em relação a variável resposta, ou seja, ocorrência ou não do sinistro, podemos notar uma alta concentração de não ocorrência de sinistros, representando 98,57\% dos dados de treino. Isso pode ser verificado em relação as categorias de idade, como mostrado abaixo:
+
+
+```{r, include= TRUE, message=F, fig.align="center"}
+ggplot(data=treino, aes(x=as.factor(IDADE), fill=sin)) +
+  geom_bar(stat="count", color="black", position=position_dodge())+
+  theme_classic()+labs(x = "Classe de idade", y = "N")
+```
+
+Note que há um maior número de ocorrência de sinistros nas classes de idade 2 e 5, ou seja, segurados com idade  entre 26-35 anos e maiores que 55 anos. 
+
+De modo a classificar a ocorrência de sinistros, vamos construir um modelo de classificação do tipo *Random forest* a partir de 100 árvores, tendo como covariáveis: Sexo, idade, exposição do veículo (taxa atribuída) e ano do carro, conforme o seguinte modelo:
+
+
+$$sinistros \sim Sexo + Idade + Exposição + ano.do.carro $$
+Após a construção do algoritmo, tem-se que as variáveis que mais contribuíram foram: exposição, idade, sexo e ano do carro. Note que a taxa de erro da classe 0 é baixa, entretanto, há uma elevada taxa de erro para a classe 1, o que pode ser observado abaixo.
+
+<center>
+![](/home/luiz/Dropbox/DOUTORADO/ANÁLISE E VISUALIZAÇÃO DE DADOS/TRABALHO/erro.jpeg){width=50%}
+</center>
+
+
+Desta forma, as predições do modelo via conjunto de teste forneceu a seguinte matriz de confusão apresentada abaixo. Note a alta taxa de erro da classe 1 quanto comparada a classe 0, o que pode ser fruto do desbalanceamento no conjunto. Com isso, o índice kappa foi equivalente a 0,066 e a acurácia de 98,38\%.
+
+| Classe/Predito |   0  |  1 |
+|:--------------:|:----:|:--:|
+| 0              | 3307 | 50 |
+| 1              | 4    | 2  |
+
+
+Para analisar o desabalanceamento, vamos utilizar uma amostragem *Undersampling* via método ROSE. Com o método, vamos criar uma nova amostra com probabilidade de ocorrência de 0,5 para cada classe, e o novo modelo será ajustado. Com isso, a taxa de erro de é reduzida no modelo, como pode ser observado abaixo:
+
+<center>
+![](/home/luiz/Dropbox/DOUTORADO/ANÁLISE E VISUALIZAÇÃO DE DADOS/TRABALHO/erro1.jpeg){width=50%}
+</center>
+
+
+No modelo, a taxa de acurácia é um pouco reduzida para 0,9288, mas há um aumento do índice kappa para 0,1553. Com resultados apresentados na seguinte matriz de confusão:
+
+| Classe/Predito |   0  |  1 |
+|:--------------:|:----:|:--:|
+| 0              | 2936 | 19 |
+| 1              | 208  | 24 |
+
+
+  
+Note uma melhoria da dos acertos na classe 1 quando comparada ao modelo anterior, entretanto, novas condições de amostragem ou modelos ainda devem ser considerados de modo a melhorar a acurácia de classificação.
+
+
+
+
+
+
+

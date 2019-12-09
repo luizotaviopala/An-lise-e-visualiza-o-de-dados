@@ -1,0 +1,118 @@
+---
+title: "Análise de texto"
+author: "Luiz Otávio Pala"
+date: "3 de dezembro de 2019"
+output: html_document
+---
+#<div style="text-align: justify"> 
+
+## [Ibovespa encosta nos 109 mil pontos e registra 2º maior fechamento da história; dólar cai](#heading-3)
+
+Vamos analisar a notícia do *InfoMoney* registrada no dia 2 de dezembro de 2019.
+
+```{r, include=T, message=F}
+library(RCurl); library(XML); library("pdftools")
+library("readtext"); library("tm"); library(htm2txt)
+library("htm2txt"); library(stringr); library("quanteda")
+```
+
+Vamos selecionar o endereço da reportagem e utilizar a função para capturar as palavras.
+
+```{r, include=T, message=F}
+library(htm2txt); library("tidyverse")
+url <- 'https://www.infomoney.com.br/mercados/ibovespa-encosta-nos-109-mil-pontos-e-registra-2o-maior-fechamento-da-historia-dolar-cai/'
+(text <- gettxt(url)); print(text)
+```
+
+Inicialmente, vamos precisar fazer a limpeza do texto, removendo pontuações e simbolos especiais.
+
+```{r, include=T, message=F, warning=F}
+textCorpus = Corpus(VectorSource(text))
+tdm = as.matrix(TermDocumentMatrix(textCorpus))
+Clean_String <- function(string){
+  temp <- tolower(string)
+  temp <- stringr::str_replace_all(temp,"[^a-zA-Z\\s]", " ")
+  temp <- stringr::str_replace_all(temp,"[\\s]+", " ")
+  temp <- stringr::str_split(temp, " ")[[1]]
+  indexes <- which(temp == "")
+  if(length(indexes) > 0){
+    temp <- temp[-indexes]
+  } 
+  return(temp)
+}
+text = Clean_String(text)
+dados = as.tibble(text)
+```
+
+Criando um *corpus*:
+
+```{r, include= T, message=F, warning=F}
+textCorpus = Corpus(VectorSource(text))
+tdm = as.matrix(TermDocumentMatrix(textCorpus))
+corpus <- textCorpus
+```
+
+Vamos proceder as demais limpezas, como as *stopwords*:
+
+```{r, include= T, message=F, warning=F}
+# Elimimando os espaços em branco extras
+corpus[[1]]$content
+corpus <- tm_map(corpus,stripWhitespace)
+corpus[[1]]$content
+
+#Propriedades do corpus
+length(corpus)
+inspect(corpus)
+
+
+
+# Alterar tudo para minusculo
+corpus[[1]]$content
+corpus <- tm_map(corpus, content_transformer(tolower))
+corpus[[1]]$content
+
+# Removendo stopwords
+stopwords("english")
+lista <- stopwords("portuguese")
+ lista <- readLines("lista de stopwords Portugues.txt",
+                   encoding = "latin1")
+corpus <- tm_map(corpus,removeWords,lista)
+corpus[[1]]$content
+```
+
+Após a limpeza dos dados, vamos criar a nuvem de palavras, considerando tons em verde, de modo que quão mais verde, maior a frequência em que a palavra ocorreu.
+
+
+```{r, message=F, include=T, fig.align="center", warning=F}
+require(wordcloud)
+require(XML)
+require(RColorBrewer)
+
+matriz <- TermDocumentMatrix(corpus)
+
+matriz <- as.matrix(matriz)
+
+palavras <- sort(rowSums(matriz),decreasing=TRUE)
+palavras <- data.frame(word = names(palavras),freq=palavras)
+palavras
+
+table(palavras$freq)
+
+pal2 <- brewer.pal(7,"Greens")
+max(palavras$freq)
+
+
+wordcloud(palavras$word,
+          palavras$freq, 
+          scale=c(4,0.5),
+          min.freq=,
+          max.words=Inf,
+          random.order = FALSE,
+          rot.per=.1, 
+          colors=pal2)
+```
+
+Podemos notar que as palavras que mais ocorreram na notícia estão relacionadas com investimentos e fundos. Além de deter pontos incluídos na análise. 
+
+
+

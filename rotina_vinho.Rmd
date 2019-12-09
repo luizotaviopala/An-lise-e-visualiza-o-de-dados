@@ -1,0 +1,85 @@
+---
+title: "Projeto II"
+author: "Luiz Otávio Pala"
+date: "28 de novembro de 2019"
+output: html_document
+---
+#<div style="text-align: justify"> 
+## [ANÁLISE DA QUALIDADE DE VINHOS](#heading-3)
+
+O objetivo do projeto é construir um modelo de classificação que preveja sua qualidade com base nas características físicas e químicas do vinho (a qualidade do vinho foi avaliada com base em seu sabor).
+
+O conjunto de dados é dividido em duas classes, sendo elas: branco e tinto. Vamos iniciar a análise com os dados de vinho tinho, que conta com 1599 observações em 12 variáveis, sendo elas:
+
+* Acidez: Atribuída como fator com 96 níveis;
+* Volatilidade;
+* Ácido citrico;
+* Açucar residual;
+* Dióxido de enxofre livre;
+* Cloretos;
+* Dióxido de enxofre total;
+* Densidade;
+* Ph;
+* Sulfatos.
+* Alcool;
+* Qualidade (resposta).
+
+```{r, include=FALSE, message=F}
+setwd("/home/luiz/Dropbox/DOUTORADO/ANÁLISE E VISUALIZAÇÃO DE DADOS/TRABALHO")
+dados = read.csv2("winequality-red.csv")
+```
+
+```{r, include=T, message=F}
+library("tidyverse")
+glimpse(dados)
+```
+Podemos notar que todas as covariáveis disponibilizadas no conjunto de dados são atribuídas como fator, com exceção da qualidade, que deve ser transformada. No gráfico de barras abaixo, temos o número de vinhos observados em cada nível de qualidade. Podemos notar a maior concentração de vinhos com qualidade 5 e 6. 
+
+```{r, include=T, message=F, fig.align='center'}
+dados$quality <- factor(dados$quality)
+ggplot(data=dados, aes(x=quality)) +
+  geom_bar(stat="count", position=position_dodge(), fill = "#FF6666")+
+  theme_classic()+ scale_x_discrete("Qualidade")+scale_y_continuous("N")
+```
+
+De modo a analisar as covariáveis disponíveis, vamos construir os componentes prinicpais de modo a reduzir a dimensionalidade dos dados e selecionar as variáveis com maior poder de explicação da variabilidade, pois variáveis sensoriais podem apresentar altas correlações. 
+
+Como os dois primeiros componentes principais explicam aproximadamente 79\% da variabilidade do conjunto de dados, vamos reservar as variáveis que mais contribuíram para a construção de cada componente, sendo elas: densidade e Dióxido de enxofre total. 
+
+```{r, include=T, message=F, fig.align='center'}
+library("FactoMineR");library("factoextra")
+d = as.tibble((dados[,-12])) # removendo a resposta
+d =  mutate_if(d, is.factor, as.numeric)
+b1 = prcomp(d)
+summary(b1)
+var = get_pca_var(b1)
+fviz_contrib(b1, choice = "var", axes = 1, title = "")
+fviz_contrib(b1, choice = "var", axes = 2, title = "")
+```
+Assim, vamos construir um modelo de árvores aleatórias e analisar a taxa de acerto do modelo a partir das duas covariáveis. Para isso, criaremos um conjunto com 90\% de dados para treino e 10\% para teste.
+
+```{r, message=F}
+library("randomForest")
+library("caret")
+
+dados$total.sulfur.dioxide = as.numeric(dados$total.sulfur.dioxide)
+dados$density = as.numeric(dados$density)
+ind <- sample(2, nrow(dados), replace= T, prob=c(0.9, 0.1))
+treino <- as.tibble(dados[ind==1,c(7,8, 12)])
+teste <- dados[ind==2,c(7,8, 12)]
+```
+
+```{r, message=F}
+modelo_random <- randomForest(quality ~ total.sulfur.dioxide + density, data =  treino,ntree = 500,  mtry = 2)
+predicao <- predict(modelo_random, newdata = teste)
+confusionMatrix(predicao, teste$quality)
+```
+
+Podemos notar que o modelo apresentou uma acurácia baixa, aproximadamente 64\%, considerando as duas covariáves e *kappa* de 0,4206, o que pode não ser interessante. Note que no modelo estamos usando 500 árvores. Outros métodos podem ser utiizados para comparar a taxa de acurácia deste.
+
+Entretanto, podemos notar que a matriz o método apresentou dificuldade em classificar qualidades do tipo 5 e 6, com maior sensitividade para vinhos com qualidade 5 de 79,03. De modo a melhorar a acurácia, podemos considerar outros modelos e encontrar o com melhor poder de predição.
+
+
+
+
+

@@ -1,0 +1,130 @@
+---
+title: "Projeto III"
+author: "Luiz Otávio Pala"
+date: "25 de novembro de 2019"
+output: html_document
+---
+#<div style="text-align: justify"> 
+
+## [Modelos para previsão de sobreviventes do Titanic](#heading-3)
+
+Fazer um modelo focado no aprendizado de máquina para criar um modelo que preveja quais passageiros sobreviveram ao naufrágio do Titanic.
+
+O conjunto *Titanic* conta com 12 variáveis em 891 observações. Sendo elas:
+
+
+
+* Identificação do passageiro (*PassengerId*);
+* Sobrevivência (*Survived*);
+* Classe do passegeiro (*Pclass*);
+* Nome do passageiro(*Name*);
+* Sexo (*Sex*);
+* Idade (*Age*);
+* Número de irmão ou cônjuges a bordo (*SibSp*);
+* Número de filhos ou pais (*Parch*);
+* Número do bilhete (*Ticket*);
+* Tarifa (*Fare*);
+* Cabine (*Cabin*);
+* Porto de embarque (*Embarked*).
+
+Para analisar a sobreviência do passageiro podemos remover algumas variáveis, como a identificação, nome do passageiro e o número do bilhete. Após a remoção, teremos um conjunto com 9 variáveis.
+
+```{r, include=T, message=F}
+library("tidyverse")
+dados = read.csv("train.csv")
+dados = dados %>% select(-PassengerId, -Name, -Ticket)
+```
+
+Vamos analisar as características de cada variável presente na base. Note que há algumas observações ausentes nos dados, como idades e cabine. Temos variáveis do tipo fator, como o sexo, cabine e porto de embarque, mas também vamos considerar as variáveis sobrevivência, Classe, *SibSp* e *Parch* como fatores.
+
+```{r, include=T, message=F}
+dados = dados %>% mutate(Survived = factor(Survived),
+                         Pclass = factor(Pclass),
+                         SibSp = factor(SibSp),
+                         Parch = factor(Parch))
+glimpse(dados)
+```
+
+Inicialmente, haviam 577 homens e 314 mulheres no navio, onde 216 eram da primeira classe, 184 da segunda classe e 491 da terceira. Podemos notar que houveram 342 sobreviventes entre os 891 passageiros, correspondendo a 38\%. Analisando as características dos sobreviventes conforme o sexo, temos:
+
+```{r, include=T, message=F, fig.align='center'}
+library("qwraps2"); library("knitr"); library(xtable); library("lmtest")
+dados_sobreviventes = filter(dados, Survived == 1)
+ggplot(data=dados_sobreviventes, aes(x=Pclass, fill=Sex)) +
+  geom_bar(stat="count", position=position_dodge())+
+  theme_classic()
+```
+
+Conforme os sobreviventes, temos que o sexo feminino apresentou o maior número de sobreviventes em todas as classes. Note que a probabilidade de sobrevivência de cada sexo em cada classe foi maior para o sexo feminino. Isto é: P(sobrevivencia_masculino| classe 1) = 45/122. Além disso, as classes 2 e 3 foram as mais afetadas por mortes em passageiros do sexo masculino.
+
+|      Classe      |    1   |    1   |    2   |    2   |    3   |   3   |
+|:----------------:|:------:|:------:|:------:|:------:|:------:|:-----:|
+| Sexo             |    M   |    F   |    M   |    F   |    M   |   F   |
+| Passageiros      | 122    | 94     | 108    | 76     | 347    | 144   |
+| Sobreviventes    | 45     | 91     | 17     | 70     | 47     | 72    |
+| Mortes           | 77     | 3      | 91     | 6      | 300    | 72    |
+| P(sobrevivência) | 0,3680 | 0,9680 | 0,1570 | 0,9210 | 0,1354 | 0,500 |
+
+Sem considerar o fator da classe, a probabilidade de sobrevivência de um passageiro do sexo masculino foi de 109/577 e do sexo feminino de 233/314.  
+
+Considerando o conjunto de dados com 891 observações, temos que algumas observações estão ausentes que serão removidas. Além disso, vamos remover a variável *Cabin* pois apresenta falta de informações. Com isso, teremos 8 variáveis e 714 observações, através do comando:
+
+```{r, message=F, fig.align='center'}
+dados = dados %>% select(-Cabin) %>% na.omit() 
+```
+
+De modo a analisar a sobreviência dos passageiros, vamos considerar um modelo de regressão logístico. Para isso, vamos dividir a amostra em 80\% para treino e 20\% para teste.
+
+```{r}
+set.seed(14)
+ind <- sample(2, nrow(dados), replace= T, prob=c(0.9, 0.1))
+treino <- dados[ind==1,]
+teste <- dados[ind==2,]
+
+modelo = glm (Survived ~ Pclass+ Sex + Age + 
+              SibSp+ Parch+Fare+Embarked, data = treino, family =                  binomial)
+coeftest(modelo)
+```
+
+Note que nem todas as covariáveis foram significativas. Vamos proceder com o algoritimo *step*. Conforme este, o modelo modelo é dado por: Survived ~ Pclass + Sex + Age + SibSp.
+
+```{r}
+modelo2 = glm(Survived ~ Pclass + Sex + Age + SibSp, data = treino,                family = binomial)
+coeftest(modelo2)
+```
+
+Para analisar a capacidade de predição, vamos comparar o comportamento do modelo aos dados de teste. Conforme o modelo ajustado, houve um efeito signitifcativo da classe na qual o passageiro estava, bem como da idade do passageiro. Considerando um limiar de 0,5, o modelo classificou corretamente 82,9\% dos passageiros que morreram e 81,8\% dos passageiros que sobreviveram considerando os dados de teste.
+
+```{r}
+pred.Teste = predict(modelo2, teste, type = "response")
+table(teste$Survived, pred.Teste > 0.5)
+```
+
+Vamos considerar outro modelo para classificação de modo a comparar a predição, com 100 árvores e *mtry* = 2. Com o modelo considerado, houve uma melhoria da capacidade de predição dos passageiros que morreram, aumentando para 90,2\%. Entretanto, houve uma redução para 72,7\% da classificação de passageiros que sobreviveram.
+
+
+```{r, message=F}
+library("randomForest")
+library("caret")
+modelo_random <- randomForest(Survived ~ Pclass+ Sex + Age + 
+                            SibSp+ Parch+Fare+Embarked, data =  treino,
+                            ntree = 100,  mtry = 2)
+predicao <- predict(modelo_random, newdata = teste)
+confusionMatrix(predicao, teste$Survived)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
