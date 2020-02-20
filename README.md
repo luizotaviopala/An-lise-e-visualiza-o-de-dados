@@ -1,2 +1,4 @@
-# An-lise-e-visualiza-o-de-dados
-Projeto realizado na disciplina de análise e visualização de dados - Universidade Federal de Lavras
+# Analise e visualizacao de dados
+
+Rotinas em R comentadas, realizadas na disciplina de análise e visualização de dados que esto disponveis em: https://www.rpubs.com/luizotaviopala. 
+
